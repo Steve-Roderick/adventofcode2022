@@ -11,6 +11,7 @@
 #include <cstring>
 #include <utility>
 #include <stdint.h>
+#include <chrono>
 
 
 struct sensor
@@ -25,10 +26,22 @@ struct sensor
 
     // Manhattan distance sensor - beacon
     std::int64_t distance;
+
+    // temporary distance: Used as a cache during part ii.
+    // Holds the x component of the manhattan distance
+    // while scanning the grid in x major.
+    std::int64_t td;
 };
 
+// Sort based on td.
+// Idea is check sensors with a smaller x distance first.
+bool type_is_less(const sensor* t1, const struct sensor* t2)
+{
+    return t1->td < t2->td;
+}
 
-std::int64_t manhattan_distance(
+
+inline std::int64_t manhattan_distance(
         std::int64_t ax,
         std::int64_t ay,
         std::int64_t bx,
@@ -74,6 +87,7 @@ sensor * parse_sensor_line(std::string line)
     s->by = by;
 
     s->distance = manhattan_distance(sx, sy, bx, by);
+
     return s;
 }
 
@@ -82,8 +96,8 @@ int main(int argc, char *argv[])
     std::vector<sensor*> sensors;
     int key = 0;
     #define Y_SCAN 2000000
-    //std::ifstream infile("input.small");
     std::ifstream infile("input.large");
+    //std::ifstream infile("input.large");
     std::string line;
     while(std::getline(infile, line)) {
         if (line.empty())
@@ -94,16 +108,18 @@ int main(int argc, char *argv[])
     
     }
 
-    // Find min and max bx positions.
+    // Find min and max bx and max by positions.
     // So that we can frame the board within known bounds.
     std::int64_t bminx = std::numeric_limits<int64_t>::max();
     std::int64_t bmaxx = std::numeric_limits<int64_t>::min();
+    std::int64_t bmaxy = std::numeric_limits<int64_t>::min();
     for (sensor * s : sensors) {
         bmaxx = s->bx > bmaxx ? s->bx : bmaxx;
         bminx = s->bx < bminx ? s->bx : bminx;
+        bmaxy = s->by > bmaxy ? s->by : bmaxy;
     }
 
-    // PART I 
+    // PART I
     int accept = 0;
     for (std::int64_t i = bminx; i < bmaxx ; i++ ) {
         for (sensor * s : sensors) {
@@ -122,7 +138,65 @@ int main(int argc, char *argv[])
             }
         }
     }
-
     std::cout << "Number of discrete points where a beacon cannot exist: ";
     std::cout << accept << std::endl;
+
+
+    // PART II
+
+    #define SEARCH_BOUND 4000000
+    std::int64_t bound_x = SEARCH_BOUND < bmaxx ? SEARCH_BOUND : bmaxx;
+    std::int64_t bound_y = SEARCH_BOUND < bmaxy ? SEARCH_BOUND : bmaxy;
+
+    #define TIME_ROW false
+    std::int64_t x_beacon = 0;
+    std::int64_t y_beacon = 0;
+    for (std::int64_t i = 0; i <= bound_x; i++) {
+        auto t_start = std::chrono::high_resolution_clock::now();
+        // Hoist distance from the sensor x to this grid on x.
+        for (sensor * s : sensors) {
+            s->td = std::llabs(s->sx - i);
+        }
+
+        std::sort(sensors.begin(), sensors.end(), type_is_less);
+        for (std::int64_t j = 0; j <= bound_y; j++) {
+            bool possible = true;
+            for (sensor * s : sensors) {
+                // Distance from sensor to this grid point.
+                std::int64_t s_to_p = s->td + std::llabs(s->sy - j);
+
+                // If the distance to this point is less than or equal to the distance
+                // of this sensors closest beacon, then we know that a beacon
+                // cannot be here.
+                if (s_to_p <= s->distance) {
+                    possible = false;
+                    break;
+                }
+
+                // If a beacon is here then stop looking at this point.
+                if (s->bx == i && s->by == j) {
+                    possible = false;
+                    break;
+                }
+            }
+            if (possible) {
+                x_beacon = i;
+                y_beacon = j;
+                std::cout << i << std::endl;
+                std::cout << j << std::endl;
+                goto skip_out;
+            }
+        }
+        if (TIME_ROW) {
+            auto t_end = std::chrono::high_resolution_clock::now();
+            double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
+            std::cout << elapsed_time_ms << std::endl;
+        }
+
+    }
+
+skip_out:
+    std::int64_t freq = (x_beacon * 4000000) + y_beacon;
+    std::cout << "Freq: ";
+    std::cout << freq << std::endl;
 }
